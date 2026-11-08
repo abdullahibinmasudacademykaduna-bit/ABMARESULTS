@@ -1787,6 +1787,7 @@ function mkQR(el,text){
   const opt=t=>({text:t,width:70,height:70,colorDark:'#000000',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
   try{new QRCode(el,opt(text));}catch(e){el.innerHTML='';try{new QRCode(el,Object.assign(opt(qrFallback(text)),{correctLevel:QRCode.CorrectLevel.L}));}catch(e2){el.innerHTML='';}}
 }
+window.addEventListener('error',e=>{if(window.__printing)alert('Print problem: '+e.message);});
 function subjParts(n){const p=String(n||'').split('|');return {en:(p[0]||'').trim(),ar:p.slice(1).join('|').trim()};}
 function subjJoin(en,ar){en=(en||'').trim();ar=(ar||'').trim();return en?(ar?en+' | '+ar:en):ar;}
 const AR_DIG=v=>String(v).replace(/\d/g,d=>'٠١٢٣٤٥٦٧٨٩'[d]).replace(/\./g,'٫').replace(/%/g,'٪');
@@ -1837,7 +1838,8 @@ function buildReportCardHTML(studentId, session, term, isPrint=false){
   let posText='—';
   if(r.classSize&&r.classSize>0){const cR=results.filter(x=>{const s=students.find(s=>s.id===x.studentId);return s&&s.className===st.className && x.session===session && x.term===term;}).sort((a,b)=>b.overallTotal-a.overallTotal);posText=arPos(cR.findIndex(x=>x.studentId===studentId)+1,r.classSize);}
   const qrId=`qr-${studentId}-${Date.now()}`;
-  const qrData=JSON.stringify({name:st.name,regNum:st.regNum,class:st.className,session,term,average:avg});
+  const asc=v=>String(v==null?'':v).replace(/[^\x20-\x7E]/g,'');
+  const qrData=['ABMA',asc(st.regNum),asc(session),asc(term),avg].join('|');
   if(!isPrint){setTimeout(()=>{if(document.getElementById(qrId)) mkQR(document.getElementById(qrId),qrData);},100);}
   const bi=(en,ar)=>`<span>${en}</span><span class="ar">${ar}</span>`;
   const box=(en,ar,v,va,span)=>`<div class="rc-ib"${span?` style="grid-column:span ${span}"`:''}><div class="k">${bi(en,ar)}</div><div class="v">${va!==undefined?bi(v,va):`<span>${v}</span>`}</div></div>`;
@@ -1912,6 +1914,7 @@ document.getElementById('report-overlay').addEventListener('click',function(e){i
 function printSingleReport(){if(_printData)launchPrint([{studentId:_printData.studentId,session:_printData.session,term:_printData.term}]);}
 
 function launchPrint(items){
+  window.__printing=true;setTimeout(()=>{window.__printing=false;},20000);
   const PRINT_CSS=`
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:Arial,Helvetica,sans-serif;background:white;color:#111;font-size:11.5px}
@@ -1969,7 +1972,9 @@ function launchPrint(items){
   // ── Generate QR codes as data URLs before going into iframe ──────────
   // We render each QR into a temporary off-screen div, grab the canvas
   // data URL, then replace the placeholder div in the HTML string.
-  function generateQRDataURLs(htmlStrings, callback) {
+  function generateQRDataURLs(htmlStrings, cb0) {
+    let finished=false;
+    const callback=(arr)=>{if(finished)return;finished=true;cb0(arr);};
     const tempHolder = document.createElement('div');
     tempHolder.style.cssText = 'position:fixed;left:-9999px;top:-9999px;visibility:hidden';
     document.body.appendChild(tempHolder);
@@ -1984,6 +1989,7 @@ function launchPrint(items){
     // Count total QRs needed
     results.forEach(r => { pending += r.matches.length; });
     if (pending === 0) { document.body.removeChild(tempHolder); callback(htmlStrings); return; }
+    setTimeout(()=>{if(finished)return;try{document.body.removeChild(tempHolder);}catch(e){}callback(results.map(r=>r.html.replace(/<div[^>]*data-qrtext="[^"]*"[^>]*>(<\/div>)?/g,'')));},6000);
 
     results.forEach((item, idx) => {
       item.matches.forEach(match => {
@@ -2014,7 +2020,7 @@ function launchPrint(items){
         return `<div class="pw rc">${h}</div>`;
       }).join('');
 
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap" rel="stylesheet"><style>${PRINT_CSS}${RC_AR_CSS}</style></head><body>${pagesHtml}<script>window.onload=function(){var H=Math.floor(259*3.7795);document.querySelectorAll('.pw').forEach(function(p){var x=p.scrollHeight;if(x>H)p.style.zoom=H/x;});setTimeout(function(){window.print();},300);}<\/script></body></html>`;
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap" rel="stylesheet"><style>${PRINT_CSS}${RC_AR_CSS}</style></head><body>${pagesHtml}<script>window.onload=function(){try{var H=Math.floor(259*3.7795);document.querySelectorAll('.pw').forEach(function(p){var x=p.scrollHeight;if(x>H)p.style.zoom=H/x;});}catch(e){}setTimeout(function(){window.print();},300);}<\/script></body></html>`;
       if(window.AndroidBridge && window.AndroidBridge.printHtml){
         window.AndroidBridge.printHtml(html);
         return;
