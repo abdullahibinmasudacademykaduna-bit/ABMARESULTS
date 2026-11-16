@@ -218,6 +218,7 @@
     .sidebar-backdrop.open{display:block}
   }
 
+  .cfg-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}.cfg-row input[type=text]{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--mist);border-radius:var(--radius);font-size:13px}.cfg-h{font-weight:700;margin:20px 0 8px;color:var(--ink)}.cfg-chk{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:13px}
   /* ── LIGHT THEME ── */
   header{background:#fff;color:var(--ink);box-shadow:0 1px 8px rgba(30,60,120,.12);border-bottom:1px solid var(--mist)}
   .header-meta{color:var(--slate)}.hamburger-btn{color:var(--ink)}
@@ -584,8 +585,13 @@
 
       <!-- SUBJECT CONFIGURATION PER SECTION -->
       <div class="card" style="margin-top:24px">
+        <div class="card-header"><div class="card-title">🏫 Classes &amp; Subjects</div></div>
+        <div class="card-body"><div id="class-config"></div></div>
+      </div>
+
+      <div class="card" style="margin-top:24px">
         <div class="card-header">
-          <div class="card-title">📚 Subjects per Section</div>
+          <div class="card-title">📚 Subjects per Section <span style="font-weight:400;font-size:12px;color:var(--slate)">(only used for a class with no list above)</span></div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-sm" style="background:var(--nursery);color:white;padding:6px 14px" onclick="showSubjectSection('nursery')">Nursery</button>
             <button class="btn btn-sm" style="background:var(--primary);color:white;padding:6px 14px" onclick="showSubjectSection('primary')">Basic</button>
@@ -1055,6 +1061,8 @@ function getSubjectsForStudent(studentId){
     const dept = departments.find(d=>d.name===st.department);
     if(dept) return dept.subjects.slice();
   }
+  const cs=schoolConfig&&schoolConfig.classSubjects&&schoolConfig.classSubjects[st.className];
+  if(cs&&cs.length) return cs.slice();
   return (sectionSubjects[st.level] || DEFAULT_SUBJECTS).slice();
 }
 
@@ -1080,6 +1088,7 @@ function subscribeAppData(){
   _dataUnsub.push(c.doc('settings').onSnapshot(s=>{ if(s.exists) settings=s.data(); else c.doc('settings').set(settings); refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('sectionSubjects').onSnapshot(s=>{ if(s.exists) sectionSubjects=s.data(); else c.doc('sectionSubjects').set(sectionSubjects); refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('departments').onSnapshot(s=>{ departments=(s.data()&&s.data().list)||DEFAULT_DEPARTMENTS.map(d=>({name:d.name,subjects:[...d.subjects]})); if(!s.exists) c.doc('departments').set({list:departments}); refreshCurrentPageFromSnapshot(); }));
+  _dataUnsub.push(c.doc('schoolConfig').onSnapshot(s=>{ schoolConfig=s.exists?s.data():null; applySchoolConfig(); refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('exams').onSnapshot(s=>{ exams=(s.data()&&s.data().list)||[]; refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('logo').onSnapshot(s=>{ schoolLogoDataURL=(s.data()&&s.data().dataUrl)||null; if(_currentPage==='settings') updateLogoPreview(); }));
 }
@@ -1277,7 +1286,7 @@ function renderCurrentPage(){
   if(page==='ranking')       {populateClassFilter();populateRankingSubjectFilter();renderRanking();}
   if(page==='print-class')   initPrintClass();
   if(page==='users')         renderUserList();
-  if(page==='settings')      loadSettings();
+  if(page==='settings')      {loadSettings();renderClassConfig();}
 }
 // Lighter re-render used when a Firestore snapshot arrives in the background.
 // Skips the two data-entry pages (enter-results, print-class) so an incoming
@@ -1788,6 +1797,77 @@ function mkQR(el,text){
   try{new QRCode(el,opt(text));}catch(e){el.innerHTML='';try{new QRCode(el,Object.assign(opt(qrFallback(text)),{correctLevel:QRCode.CorrectLevel.L}));}catch(e2){el.innerHTML='';}}
 }
 window.addEventListener('error',e=>{if(window.__printing)alert('Print problem: '+e.message);});
+let schoolConfig=null,cfgDraft=null;
+function saveSchoolConfig(){return db.collection('appData').doc('schoolConfig').set(schoolConfig).catch(err=>toast('Could not save: '+err.message,'error'));}
+function applySchoolConfig(){if(!schoolConfig||!schoolConfig.classes)return;['nursery','primary','secondary'].forEach(l=>{const a=schoolConfig.classes[l];if(Array.isArray(a)&&a.length)CLASS_OPTIONS[l]=a.slice();});}
+function cfgStart(){
+  const lib=(schoolConfig&&schoolConfig.subjects)||[...new Set([...Object.values(sectionSubjects).flat(),...departments.flatMap(d=>d.subjects),...DEFAULT_SUBJECTS])].filter(Boolean);
+  const cs=(schoolConfig&&schoolConfig.classSubjects)||{};
+  const D=cfgDraft={subjects:lib.map((n,i)=>Object.assign({id:i,orig:n},subjParts(n))),nextId:lib.length,classes:{}};
+  const idOf=n=>{let s=D.subjects.find(x=>x.orig===n);if(!s){s=Object.assign({id:D.nextId++,orig:n},subjParts(n));D.subjects.push(s);}return s.id;};
+  ['nursery','primary','secondary'].forEach(l=>{D.classes[l]=CLASS_OPTIONS[l].map(n=>({orig:n,name:n,subs:(cs[n]||sectionSubjects[l]||[]).map(idOf)}));});
+}
+const cfgQ=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const CFG_LV={nursery:'Nursery',primary:'Basic (Primary)',secondary:'Secondary'};
+function renderClassConfig(){
+  const el=document.getElementById('class-config');if(!el)return;
+  if(!cfgDraft)cfgStart();
+  const d=cfgDraft;
+  let x='<div class="cfg-h">1. Subject library <span style="font-weight:400;color:var(--slate)">— English name and Arabic name</span></div>';
+  x+=d.subjects.map(s=>`<div class="cfg-row"><input type="text" value="${cfgQ(s.en)}" placeholder="English name" oninput="cfgSetSubj(${s.id},'en',this.value)" onchange="renderCfgSubs()"><input type="text" dir="rtl" value="${cfgQ(s.ar)}" placeholder="الاسم بالعربية" style="font-family:Amiri,serif;font-size:15px" oninput="cfgSetSubj(${s.id},'ar',this.value)" onchange="renderCfgSubs()"><button class="btn btn-sm btn-outline" onclick="cfgDelSubject(${s.id})">✕</button></div>`).join('');
+  x+='<button class="btn btn-sm btn-outline" onclick="cfgAddSubject()">＋ Add subject</button>';
+  x+='<div class="cfg-h">2. Classes <span style="font-weight:400;color:var(--slate)">— order is the promotion order</span></div>';
+  for(const l in CFG_LV){
+    x+=`<div style="font-size:12px;font-weight:700;color:var(--slate);margin:10px 0 6px">${CFG_LV[l]}</div>`;
+    x+=d.classes[l].map((c,i)=>`<div class="cfg-row"><input type="text" value="${cfgQ(c.name)}" oninput="cfgSetClass('${l}',${i},this.value)" onchange="renderCfgSubs()"><button class="btn btn-sm btn-outline" onclick="cfgMove('${l}',${i},-1)">▲</button><button class="btn btn-sm btn-outline" onclick="cfgMove('${l}',${i},1)">▼</button><button class="btn btn-sm btn-outline" onclick="cfgDelClass('${l}',${i})">✕</button></div>`).join('');
+    x+=`<button class="btn btn-sm btn-outline" onclick="cfgAddClass('${l}')">＋ Add class</button>`;
+  }
+  x+='<div class="cfg-h">3. Subjects each class offers <span style="font-weight:400;color:var(--slate)">— tick from the library</span></div><div id="cfg-subs"></div>';
+  x+='<div style="font-size:12px;color:var(--slate);margin-top:6px">SSS students who have a department use that department’s subjects instead.</div>';
+  x+='<button class="btn btn-gold" style="margin-top:14px" onclick="cfgSave()">Save classes &amp; subjects</button>';
+  el.innerHTML=x;renderCfgSubs();
+}
+function renderCfgSubs(){
+  const el=document.getElementById('cfg-subs');if(!el||!cfgDraft)return;const d=cfgDraft;let x='';
+  for(const l in CFG_LV)d.classes[l].forEach((c,i)=>{x+=`<details style="border:1px solid var(--mist);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px"><summary style="cursor:pointer;font-weight:600">${cfgQ(c.name||'(new class)')}</summary>`+d.subjects.map(s=>`<label class="cfg-chk"><input type="checkbox" ${c.subs.includes(s.id)?'checked':''} onchange="cfgToggle('${l}',${i},${s.id},this.checked)">${cfgQ(subjJoin(s.en,s.ar)||'(unnamed)')}</label>`).join('')+'</details>';});
+  el.innerHTML=x;
+}
+function cfgSetSubj(id,k,v){const s=cfgDraft.subjects.find(s=>s.id===id);if(s)s[k]=v;}
+function cfgAddSubject(){cfgDraft.subjects.push({id:cfgDraft.nextId++,orig:null,en:'',ar:''});renderClassConfig();}
+function cfgDelSubject(id){cfgDraft.subjects=cfgDraft.subjects.filter(s=>s.id!==id);Object.values(cfgDraft.classes).flat().forEach(c=>{c.subs=c.subs.filter(x=>x!==id);});renderClassConfig();}
+function cfgSetClass(l,i,v){cfgDraft.classes[l][i].name=v;}
+function cfgAddClass(l){const a=cfgDraft.classes[l];a.push({orig:null,name:'',subs:a.length?a[a.length-1].subs.slice():[]});renderClassConfig();}
+function cfgDelClass(l,i){const c=cfgDraft.classes[l][i],n=c.orig?students.filter(s=>s.className===c.orig).length:0;if(n){toast('Move or promote the '+n+' student(s) in '+c.orig+' before deleting it.','error');return;}cfgDraft.classes[l].splice(i,1);renderClassConfig();}
+function cfgMove(l,i,dir){const a=cfgDraft.classes[l],j=i+dir;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];renderClassConfig();}
+function cfgToggle(l,i,id,on){const c=cfgDraft.classes[l][i];c.subs=on?[...new Set([...c.subs,id])]:c.subs.filter(x=>x!==id);}
+async function cfgSave(){
+  const d=cfgDraft;if(!d)return;
+  const subj=d.subjects.map(s=>({s,name:subjJoin(s.en,s.ar)})).filter(x=>x.name);
+  const sn=new Set();for(const x of subj){const k=x.name.toLowerCase();if(sn.has(k)){toast('Duplicate subject: '+x.name,'error');return;}sn.add(k);}
+  const cls={},cs={},renames=[],seen=new Set();
+  for(const l in CFG_LV){
+    const arr=d.classes[l].map(c=>({c,name:c.name.trim()})).filter(x=>x.name);
+    if(!arr.length){toast('Each section needs at least one class.','error');return;}
+    for(const x of arr){const k=x.name.toLowerCase();if(seen.has(k)){toast('Duplicate class: '+x.name,'error');return;}seen.add(k);if(x.c.orig&&x.c.orig!==x.name)renames.push([x.c.orig,x.name]);}
+    cls[l]=arr.map(x=>x.name);
+    arr.forEach(x=>{cs[x.name]=subj.filter(y=>x.c.subs.includes(y.s.id)).map(y=>y.name);});
+  }
+  const subRen=subj.filter(x=>x.s.orig&&x.s.orig!==x.name).map(x=>[x.s.orig,x.name]);
+  if(renames.length){
+    students.forEach(st=>{const r=renames.find(p=>p[0]===st.className);if(r)st.className=r[1];});
+    await db.collection('appData').doc('students').set({list:students}).catch(err=>toast('Could not save students: '+err.message,'error'));
+  }
+  schoolConfig={subjects:subj.map(x=>x.name),classes:cls,classSubjects:cs};
+  await saveSchoolConfig();applySchoolConfig();
+  (typeof users!=='undefined'?users:[]).forEach(u=>{
+    const p={},ren=n=>{const r=renames.find(q=>q[0]===n);return r?r[1]:n;},sren=n=>{const r=subRen.find(q=>q[0]===n);return r?r[1]:n;};
+    if(u.classes){const nc=u.classes.map(c=>Object.assign({},c,{className:ren(c.className)}));if(JSON.stringify(nc)!==JSON.stringify(u.classes))p.classes=nc;}
+    if(u.className&&ren(u.className)!==u.className)p.className=ren(u.className);
+    if(u.subjects){const ns=u.subjects.map(sren);if(JSON.stringify(ns)!==JSON.stringify(u.subjects))p.subjects=ns;}
+    if(Object.keys(p).length)db.collection('users').doc(u.id).update(p).catch(()=>{});
+  });
+  cfgDraft=null;renderClassConfig();toast('Classes & subjects saved.','success');
+}
 function subjParts(n){const p=String(n||'').split('|');return {en:(p[0]||'').trim(),ar:p.slice(1).join('|').trim()};}
 function subjJoin(en,ar){en=(en||'').trim();ar=(ar||'').trim();return en?(ar?en+' | '+ar:en):ar;}
 const AR_DIG=v=>String(v).replace(/\d/g,d=>'٠١٢٣٤٥٦٧٨٩'[d]).replace(/\./g,'٫').replace(/%/g,'٪');
