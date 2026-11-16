@@ -755,11 +755,15 @@ function levelLabel(lv){
   if(lv==='secondary') return 'Secondary';
   return lv||'';
 }
-const CLASS_OPTIONS = {
+const CLASS_DEFAULTS = {
   nursery: ['Pre-Nursery', 'Nursery 1', 'Nursery 2', 'Nursery 3'],
   primary: ['Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6'],
   secondary: ['JSS 1', 'JSS 2', 'JSS 3', 'SSS 1', 'SSS 2', 'SSS 3']
 };
+// Class lists always come from the saved Configuration (schoolConfig) when it exists,
+// otherwise from the built-in defaults above — read fresh every time, never cached.
+function cfgClasses(l){ try{ const a=schoolConfig&&schoolConfig.classes&&schoolConfig.classes[l]; if(Array.isArray(a)&&a.length) return a; }catch(e){} return CLASS_DEFAULTS[l]; }
+const CLASS_OPTIONS = { get nursery(){return cfgClasses('nursery');}, get primary(){return cfgClasses('primary');}, get secondary(){return cfgClasses('secondary');} };
 
 // Get next class helper
 function getNextClass(currentLevel, currentClass) {
@@ -1088,7 +1092,7 @@ function subscribeAppData(){
   _dataUnsub.push(c.doc('settings').onSnapshot(s=>{ if(s.exists) settings=s.data(); else c.doc('settings').set(settings); refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('sectionSubjects').onSnapshot(s=>{ if(s.exists) sectionSubjects=s.data(); else c.doc('sectionSubjects').set(sectionSubjects); refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('departments').onSnapshot(s=>{ departments=(s.data()&&s.data().list)||DEFAULT_DEPARTMENTS.map(d=>({name:d.name,subjects:[...d.subjects]})); if(!s.exists) c.doc('departments').set({list:departments}); refreshCurrentPageFromSnapshot(); }));
-  _dataUnsub.push(c.doc('schoolConfig').onSnapshot(s=>{ schoolConfig=s.exists?s.data():null; applySchoolConfig(); refreshCurrentPageFromSnapshot(); }));
+  _dataUnsub.push(c.doc('schoolConfig').onSnapshot(s=>{ schoolConfig=s.exists?s.data():null; if(document.getElementById('add-student-form')&&document.getElementById('add-student-form').style.display==='block')updateClassOptions('new',document.getElementById('new-class')?.value||''); refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('exams').onSnapshot(s=>{ exams=(s.data()&&s.data().list)||[]; refreshCurrentPageFromSnapshot(); }));
   _dataUnsub.push(c.doc('logo').onSnapshot(s=>{ schoolLogoDataURL=(s.data()&&s.data().dataUrl)||null; if(_currentPage==='settings') updateLogoPreview(); }));
 }
@@ -1799,7 +1803,7 @@ function mkQR(el,text){
 window.addEventListener('error',e=>{if(window.__printing)alert('Print problem: '+e.message);});
 let schoolConfig=null,cfgDraft=null;
 function saveSchoolConfig(){return db.collection('appData').doc('schoolConfig').set(schoolConfig).catch(err=>toast('Could not save: '+err.message,'error'));}
-function applySchoolConfig(){if(!schoolConfig||!schoolConfig.classes)return;['nursery','primary','secondary'].forEach(l=>{const a=schoolConfig.classes[l];if(Array.isArray(a)&&a.length)CLASS_OPTIONS[l]=a.slice();});}
+function applySchoolConfig(){}
 function cfgStart(){
   const lib=(schoolConfig&&schoolConfig.subjects)||[...new Set([...Object.values(sectionSubjects).flat(),...departments.flatMap(d=>d.subjects),...DEFAULT_SUBJECTS])].filter(Boolean);
   const cs=(schoolConfig&&schoolConfig.classSubjects)||{};
