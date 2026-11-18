@@ -2208,8 +2208,10 @@ function updateLogoPreview(){
 /* ═══ USER MANAGEMENT (Admin only) ═══ */
 function classKey(level,className){ return level+'::'+className; }
 function allKnownSubjects(){
+  const lib=(schoolConfig&&schoolConfig.subjects)||[];
+  if(lib.length) return lib.filter(Boolean);
   const set=new Set();
-  (sectionSubjects.secondary||[]).forEach(s=>s&&set.add(s));
+  Object.values(sectionSubjects||{}).forEach(arr=>(arr||[]).forEach(s=>s&&set.add(s)));
   departments.forEach(d=>d.subjects.forEach(s=>s&&set.add(s)));
   return [...set].sort((a,b)=>a.localeCompare(b));
 }
@@ -2217,7 +2219,7 @@ function buildSubjectsPicker(){
   const subs=allKnownSubjects();
   const container=document.getElementById('new-user-subject-list');
   container.innerHTML = subs.length
-    ? subs.map(s=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer"><input type="checkbox" class="subj-taught-chk" value="${s}"> ${s}</label>`).join('')
+    ? subs.map(s=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer"><input type="checkbox" class="subj-taught-chk" value="${cfgQ(s)}"> ${cfgQ(s)}</label>`).join('')
     : '<div style="font-size:12px;color:var(--slate)">— No subjects configured yet, add some in Settings —</div>';
 }
 function allClassEntries(){
