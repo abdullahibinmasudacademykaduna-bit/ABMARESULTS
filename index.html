@@ -422,6 +422,8 @@
         </div>
       </div>
 
+      <div id="entry-mode-bar" style="display:none;gap:8px;flex-wrap:wrap;margin-bottom:16px"><button class="btn btn-sm btn-gold" id="mode-student-btn" onclick="setEntryMode('student')">By student (full sheet)</button><button class="btn btn-sm btn-outline" id="mode-subject-btn" onclick="setEntryMode('subject')">By subject (whole class)</button></div>
+
       <!-- SINGLE-STUDENT MODE (Admin / Principal / Homeroom / Form Teachers) -->
       <div id="single-student-picker" class="card" style="margin-bottom:24px;display:none">
         <div class="card-header"><div class="card-title">Select Student</div><button class="btn btn-sm btn-outline" id="back-to-batch-btn" style="display:none" onclick="backToBatchClassList()">← Back to Class List</button></div>
@@ -459,11 +461,11 @@
 
       <!-- BATCH MODE (Subject Teachers — one subject across a whole class) -->
       <div id="batch-class-picker" class="card" style="margin-bottom:24px;display:none">
-        <div class="card-header"><div class="card-title">Select Subject &amp; Class</div></div>
+        <div class="card-header"><div class="card-title">Select Class &amp; Subject</div></div>
         <div class="card-body">
           <div class="form-grid" style="grid-template-columns:1fr 1fr">
+            <div class="form-group"><label>Class</label><select id="batch-class-select" onchange="onBatchClassChange()"><option value="">— Select Class —</option></select></div>
             <div class="form-group"><label>Subject</label><select id="batch-subject-select" onchange="renderBatchTable()"><option value="">— Select Subject —</option></select></div>
-            <div class="form-group"><label>Class</label><select id="batch-class-select" onchange="renderBatchTable()"><option value="">— Select Class —</option></select></div>
           </div>
         </div>
       </div>
@@ -476,6 +478,7 @@
         </div>
         <div class="action-row" style="margin-top:16px">
           <button class="btn btn-gold" onclick="saveBatchSubjectScores()">💾 Save All Scores</button>
+          <button class="btn btn-outline" onclick="saveBatchAndNext()">💾 Save &amp; next subject →</button>
         </div>
       </div>
     </div>
@@ -1527,14 +1530,41 @@ function onExamChange(){
   document.getElementById('batch-class-picker').style.display='none';
   document.getElementById('batch-subject-section').style.display='none';
   document.getElementById('back-to-batch-btn').style.display='none';
+  document.getElementById('entry-mode-bar').style.display='none';
   if(!examId) return;
   if(currentUser.assignmentType==='subject'){
     document.getElementById('batch-class-picker').style.display='block';
     populateBatchClassSelect();
   } else {
-    document.getElementById('single-student-picker').style.display='block';
-    populateStudentSelect();
+    document.getElementById('entry-mode-bar').style.display='flex';
+    applyEntryMode();
   }
+}
+let entryMode='student';
+function setEntryMode(m){entryMode=m;applyEntryMode();}
+function applyEntryMode(){
+  const bySubj=entryMode==='subject';
+  document.getElementById('mode-student-btn').className='btn btn-sm '+(bySubj?'btn-outline':'btn-gold');
+  document.getElementById('mode-subject-btn').className='btn btn-sm '+(bySubj?'btn-gold':'btn-outline');
+  ['single-student-picker','result-entry-section','batch-class-picker','batch-subject-section','back-to-batch-btn'].forEach(id=>{document.getElementById(id).style.display='none';});
+  if(bySubj){document.getElementById('batch-class-picker').style.display='block';populateBatchClassSelect();}
+  else{document.getElementById('single-student-picker').style.display='block';populateStudentSelect();}
+}
+function onBatchClassChange(){
+  const key=document.getElementById('batch-class-select').value;
+  if(currentUser.assignmentType!=='subject'){
+    const sel=document.getElementById('batch-subject-select'),prev=sel.value,list=[];
+    if(key){const [l,c]=key.split('::');students.filter(s=>s.level===l&&s.className===c).forEach(s=>getSubjectsForStudent(s.id).forEach(n=>{if(!list.some(x=>x.trim().toLowerCase()===n.trim().toLowerCase()))list.push(n);}));}
+    sel.innerHTML='<option value="">— Select Subject —</option>'+list.map(s=>`<option value="${cfgQ(s)}">${cfgQ(s)}</option>`).join('');
+    sel.value=list.includes(prev)?prev:'';
+  }
+  renderBatchTable();
+}
+function saveBatchAndNext(){
+  const sel=document.getElementById('batch-subject-select'),had=sel.value;
+  saveBatchSubjectScores();
+  if(had&&sel.selectedIndex<sel.options.length-1){sel.selectedIndex=sel.selectedIndex+1;renderBatchTable();}
+  else if(had)toast('That was the last subject for this class.','success');
 }
 
 /* ═══ ENTER RESULTS — single-student mode ═══ */
@@ -1644,7 +1674,7 @@ function populateBatchClassSelect(){
   classSel.innerHTML='<option value="">— Select Class —</option>'+keys.map(k=>{const [lvl,cls]=k.split('::');return `<option value="${k}">${cls} (${lvl})</option>`;}).join('');
   classSel.value='';
   const subjSel=document.getElementById('batch-subject-select');
-  const subs=currentUser.subjects||[];
+  const subs=currentUser.assignmentType==='subject'?(currentUser.subjects||[]):[];
   subjSel.innerHTML='<option value="">— Select Subject —</option>'+subs.map(s=>`<option value="${s}">${s}</option>`).join('');
   subjSel.value = subs.length===1 ? subs[0] : '';
   document.getElementById('batch-subject-section').style.display='none';
